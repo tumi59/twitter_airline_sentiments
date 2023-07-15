@@ -76,7 +76,7 @@ def drop_table(conn):
     ''')
     conn.commit()
 
-def main():
+if __name__ == '__main__':
     subreddit = 'Flights'
 
     conn = sqlite3.connect('reddit-posts.db')
@@ -93,6 +93,4 @@ def main():
         print ('Stoping scrape...'  )
     finally:
         conn.close()
-
-if __name__ == '__main__':
-    main()
+  
