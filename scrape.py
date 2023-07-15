@@ -22,7 +22,7 @@ def create_table(conn):
     ''')
     conn.commit()
 
-def parse_page(subreddit, after='', conn=None):
+def parse_page(subreddit, after='', conn=None, post_limit=1000):
 
     # Get the list of airline names
     airline_names = get_airline_names()
@@ -35,9 +35,9 @@ def parse_page(subreddit, after='', conn=None):
 
     params = f'&after={after}' if after else ''
 
-    post_count = 0
+    global_post_count = 0  # Global post counter
 
-    while post_count < 100:
+    while global_post_count < post_limit:
         url = url_template.format(subreddit, params)
         response = requests.get(url, headers=headers)
 
@@ -45,6 +45,8 @@ def parse_page(subreddit, after='', conn=None):
             c = conn.cursor()
             data = response.json()['data']
             for post in data['children']:
+                if global_post_count >= post_limit:
+                    return None  # Return None to stop the loop in main()
                 pdata = post['data']
                 post_id= pdata['id']
                 title = pdata['title']
@@ -58,16 +60,19 @@ def parse_page(subreddit, after='', conn=None):
                 print(sentiment)
                 c.execute('INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?)',
                           (post_id, title, body, score, author, date, url, sentiment))
+                global_post_count += 1  # Increment the global post counter
             conn.commit()
-            post_count = post_count + 1
             if 'after' in data and data['after'] is not None:
                 params = '&after=' + data['after']
             else:
                 print(f"'after' not found in 'data'. 'data' is: {data}")
-                return '****Can\'t retrive post****'
+                return None
         else:
             print(f'Error {response.status_code}')
-            return '****Can\'t retrive post****'
+            return None
+        
+    return None  # Return None when post limit is reached
+
         
 def drop_table(conn):
     c = conn.cursor()
