@@ -45,10 +45,8 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
             c = conn.cursor()
             data = response.json()['data']
             for post in data['children']:
-                if global_post_count >= post_limit:
-                    return None  # Return None to stop the loop in main()
                 pdata = post['data']
-                post_id= pdata['id']
+                post_id = pdata['id']
                 title = pdata['title']
                 body = pdata['selftext']
                 score = pdata['score']
@@ -56,12 +54,21 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
                 date = pdata['created_utc']
                 url = pdata.get('url_overridden_by_dest')
 
-                sentiment = get_sentiment(body)
-                print(sentiment)
-                c.execute('INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?)',
-                          (post_id, title, body, score, author, date, url, sentiment))
-                global_post_count += 1  # Increment the global post counter
+                # Check if any airline name is in the title or body
+                for airline in airline_names:
+                    if airline.lower() in title.lower() or airline.lower() in body.lower():
+                        if global_post_count >= post_limit:
+                            return None  # Return None to stop the loop in main()
+                        
+                        sentiment = get_sentiment(body)
+                        print(sentiment)
+                        c.execute('INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?)',
+                                (post_id, title, body, score, author, date, url, sentiment))
+                        global_post_count += 1  # Increment the global post counter
+                        break  # No need to check other airlines if one is found, skip to the next post
+                
             conn.commit()
+
             if 'after' in data and data['after'] is not None:
                 params = '&after=' + data['after']
             else:
