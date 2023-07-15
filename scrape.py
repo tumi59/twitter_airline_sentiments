@@ -2,10 +2,27 @@ import requests
 import re
 import csv
 from pprint import pprint
+import sqlite3
 from airlines import get_airline_names
 from sentiment2 import get_sentiment
 
-def parse_page(subreddit, after='', writer=None):
+def create_table(conn):
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS posts (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            body TEXT,
+            score INTEGER,
+            author TEXT,
+            data REAL,
+            url TEXT,
+            sentiment TEXT
+        )
+    ''')
+    conn.commit()
+
+def parse_page(subreddit, after='', conn=None):
 
     # Get the list of airline names
     airline_names = get_airline_names()
@@ -20,11 +37,12 @@ def parse_page(subreddit, after='', writer=None):
 
     post_count = 0
 
-    while True:
+    while post_count < 100:
         url = url_template.format(subreddit, params)
         response = requests.get(url, headers=headers)
 
         if response.ok:
+            c = conn.cursor()
             data = response.json()['data']
             for post in data['children']:
                 pdata = post['data']
@@ -38,21 +56,10 @@ def parse_page(subreddit, after='', writer=None):
 
                 sentiment = get_sentiment(body)
                 print(sentiment)
-
-                # Only write the post to the CSV file if its title or body contains the name of an airline
-                for airline_name in airline_names:
-                    # Use regex to ensure the full name is present
-                    if (re.search(r'\b' + re.escape(airline_name.lower()) + r'\b', title.lower()) or
-                        re.search(r'\b' + re.escape(airline_name.lower()) + r'\b', body.lower())):  # Check body as well
-                        try:
-                            writer.writerow([post_id, score, title, body, sentiment])  # Write the data into the CSV file
-                            post_count += 1
-                            if post_count >= 100:
-                                return None  # Stop scraping after writing 100 posts
-                        except Exception as e:
-                            print(f"Error writing post {post_id} to CSV: {e}")
-                        break
-            
+                c.execute('INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?)',
+                          (post_id, title, body, score, author, date, url, sentiment))
+            conn.commit()
+            post_count = post_count + 1
             if 'after' in data and data['after'] is not None:
                 params = '&after=' + data['after']
             else:
@@ -61,20 +68,31 @@ def parse_page(subreddit, after='', writer=None):
         else:
             print(f'Error {response.status_code}')
             return '****Can\'t retrive post****'
+        
+def drop_table(conn):
+    c = conn.cursor()
+    c.execute('''
+        DROP TABLE IF EXISTS posts
+    ''')
+    conn.commit()
 
 def main():
     subreddit = 'Flights'
+
+    conn = sqlite3.connect('reddit-posts.db')
+    drop_table(conn)
+    create_table(conn)
+
     after = ''
-    with open('output.csv', 'w', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file)
-        writer.writerow(["Post ID", "Score", "Title", "Body", "Sentiment Analysis Result"])  # Added "Sentiment Analysis Result" to CSV header
+    try:
         while True:
-            after = parse_page(subreddit, after, writer)
+            after = parse_page(subreddit, after, conn)
             if after is None:
                 break
+    except KeyboardInterrupt:
+        print ('Stoping scrape...'  )
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        print('Stoping scrape........')
+    main()
