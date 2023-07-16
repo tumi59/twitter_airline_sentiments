@@ -1,8 +1,6 @@
 import requests
-import re
-import csv
-from pprint import pprint
 import sqlite3
+import re
 from airlines import get_airline_names
 from sentiment2 import get_sentiment
 
@@ -17,10 +15,17 @@ def create_table(conn):
             author TEXT,
             data REAL,
             url TEXT,
-            sentiment TEXT
+            sentiment TEXT,
+            airline TEXT
         )
     ''')
     conn.commit()
+
+def count_rows(conn):
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM posts")
+    rows = c.fetchone()[0]
+    return rows
 
 def parse_page(subreddit, after='', conn=None, post_limit=1000):
 
@@ -35,9 +40,7 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
 
     params = f'&after={after}' if after else ''
 
-    global_post_count = 0  # Global post counter
-
-    while global_post_count < post_limit:
+    while True:
         url = url_template.format(subreddit, params)
         response = requests.get(url, headers=headers)
 
@@ -54,33 +57,35 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
                 date = pdata['created_utc']
                 url = pdata.get('url_overridden_by_dest')
 
-                # Check if any airline name is in the title or body
+                # Skip if body is less than 100 words
+                if len(body.split()) < 100:
+                    continue
+
                 for airline in airline_names:
-                    if airline.lower() in title.lower() or airline.lower() in body.lower():
-                        if global_post_count >= post_limit:
-                            return None  # Return None to stop the loop in main()
-                        
+                    pattern = f'\\b{airline.lower()}\\b'
+                    if re.search(pattern, title.lower()) or re.search(pattern, body.lower()):
                         sentiment = get_sentiment(body)
                         print(sentiment)
-                        c.execute('INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?)',
-                                (post_id, title, body, score, author, date, url, sentiment))
-                        global_post_count += 1  # Increment the global post counter
-                        break  # No need to check other airlines if one is found, skip to the next post
-                
-            conn.commit()
+                        c.execute('INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?,?)',
+                                (post_id, title, body, score, author, date, url, sentiment, airline))
+                        conn.commit()
 
-            if 'after' in data and data['after'] is not None:
-                params = '&after=' + data['after']
-            else:
-                print(f"'after' not found in 'data'. 'data' is: {data}")
-                return None
+                        if count_rows(conn) >= post_limit:
+                            return None 
+                        break
         else:
             print(f'Error {response.status_code}')
-            return None
-        
-    return None  # Return None when post limit is reached
+            # Don't return None. Instead, continue
+            continue
 
-        
+        if 'after' in data and data['after'] is not None:
+            params = '&after=' + data['after']
+        else:
+            print(f"'after' not found in 'data'. 'data' is: {data}")
+            # Keep scraping from start if after is not found
+            params = ''
+
+            
 def drop_table(conn):
     c = conn.cursor()
     c.execute('''
@@ -98,11 +103,10 @@ if __name__ == '__main__':
     after = ''
     try:
         while True:
-            after = parse_page(subreddit, after, conn)
+            after = parse_page(subreddit, after, conn, post_limit=1000)
             if after is None:
                 break
     except KeyboardInterrupt:
         print ('Stoping scrape...'  )
     finally:
         conn.close()
-  
