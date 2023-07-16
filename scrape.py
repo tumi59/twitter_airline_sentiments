@@ -57,6 +57,10 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
                 date = pdata['created_utc']
                 url = pdata.get('url_overridden_by_dest')
 
+                # Skip if body is less than 100 words
+                if len(body.split()) < 100:
+                    continue
+
                 for airline in airline_names:
                     pattern = f'\\b{airline.lower()}\\b'
                     if re.search(pattern, title.lower()) or re.search(pattern, body.lower()):
@@ -71,7 +75,7 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
                         break
         else:
             print(f'Error {response.status_code}')
-            # Don't return None. Instead, continue to the next iteration of the loop
+            # Don't return None. Instead, continue
             continue
 
         if 'after' in data and data['after'] is not None:
