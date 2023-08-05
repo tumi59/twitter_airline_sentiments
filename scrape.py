@@ -4,6 +4,7 @@ import re
 from airlines import get_airline_names
 from sentiment2 import get_sentiment
 
+# create sqp table with all columns names and data types
 def create_table(conn):
     c = conn.cursor()
     c.execute('''
@@ -21,29 +22,35 @@ def create_table(conn):
     ''')
     conn.commit()
 
+# row counting method used so that the scraping scirpt knows when to stop
 def count_rows(conn):
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM posts")
     rows = c.fetchone()[0]
     return rows
 
+# parses throught the subreddit's json file
 def parse_page(subreddit, after='', conn=None, post_limit=1000):
 
-    # Get the list of airline names
+    # get the list of airline names from api
     airline_names = get_airline_names()
 
+    # link to the subreddit
     url_template = 'https://www.reddit.com/r/{}/top.json?t=all{}' 
 
+    # intialize scraping bot
     headers = {
     'User-Agent' : 'VirboxBot'
     }
 
     params = f'&after={after}' if after else ''
 
+    # endless loop to continue scraping
     while True:
         url = url_template.format(subreddit, params)
         response = requests.get(url, headers=headers)
 
+        # store specific info from each scrapped post
         if response.ok:
             c = conn.cursor()
             data = response.json()['data']
@@ -57,10 +64,11 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
                 date = pdata['created_utc']
                 url = pdata.get('url_overridden_by_dest')
 
-                # Skip if body is less than 100 words
+                # skip if body of post is less than 100 words
                 if len(body.split()) < 100:
                     continue
-
+                
+                # check if post or title explicity mentions an airline name
                 for airline in airline_names:
                     pattern = f'\\b{airline.lower()}\\b'
                     if re.search(pattern, title.lower()) or re.search(pattern, body.lower()):
@@ -72,20 +80,22 @@ def parse_page(subreddit, after='', conn=None, post_limit=1000):
 
                         if count_rows(conn) >= post_limit:
                             return None 
+        
                         break
         else:
+            # if theres an error reading post, print error but skip to next post
             print(f'Error {response.status_code}')
-            # Don't return None. Instead, continue
+            # don't return None. Instead, continue
             continue
 
         if 'after' in data and data['after'] is not None:
             params = '&after=' + data['after']
         else:
             print(f"'after' not found in 'data'. 'data' is: {data}")
-            # Keep scraping from start if after is not found
+            # keep scraping from start if after variable is not found
             params = ''
 
-            
+# delete existing table if one already exists when running the program         
 def drop_table(conn):
     c = conn.cursor()
     c.execute('''
@@ -93,6 +103,7 @@ def drop_table(conn):
     ''')
     conn.commit()
 
+# call functions and start scraping 
 if __name__ == '__main__':
     subreddit = 'Flights'
 
